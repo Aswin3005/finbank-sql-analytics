@@ -388,6 +388,7 @@ FROM customers
 GROUP BY YEAR(joined_date)
 ORDER BY join_year;
 ```
+<img width="567" height="342" alt="Image" src="https://github.com/user-attachments/assets/26236b34-dcec-4052-8530-078bd783b70c" />
 
 ---
 
