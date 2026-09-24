@@ -226,6 +226,7 @@ FROM loans
 GROUP BY loan_type, status
 ORDER BY total_outstanding DESC;
 ```
+<img width="752" height="225" alt="Image" src="https://github.com/user-attachments/assets/adf1becb-009c-4bfd-ac75-445cbf0c680d" />
 
 ---
 
@@ -249,6 +250,8 @@ JOIN customers c ON c.customer_id = l.customer_id
 WHERE l.status IN ('NPA', 'Defaulted')
 ORDER BY l.outstanding_amt DESC;
 ```
+
+<img width="952" height="105" alt="Image" src="https://github.com/user-attachments/assets/b30b209c-3a99-439d-bab1-c13edeb8092f" />
 
 ---
 
@@ -295,6 +298,8 @@ LEFT JOIN loan_exposure le USING (customer_id)
 ORDER BY debt_to_deposit_ratio DESC;
 ```
 
+<img width="842" height="223" alt="Image" src="https://github.com/user-attachments/assets/8144d0e4-155e-4d0a-a592-73ae50a4afb6" />
+
 ---
 
 ### Section 4 — Branch Performance
@@ -327,6 +332,8 @@ GROUP BY b.branch_id, b.branch_name, b.region
 ORDER BY b.region, rank_in_region;
 ```
 
+<img width="1110" height="205" alt="Image" src="https://github.com/user-attachments/assets/e7d12036-6f44-429b-a47d-f5359be1a99c" />
+
 ---
 
 #### Q10. Who are the top 3 depositors at each branch?
@@ -353,6 +360,7 @@ FROM ranked
 WHERE rnk <= 3
 ORDER BY branch_name, rnk;
 ```
+<img width="452" height="226" alt="Image" src="https://github.com/user-attachments/assets/c69f5d5d-1b4c-4ad7-a12a-5573549636ee" />
 
 ---
 
