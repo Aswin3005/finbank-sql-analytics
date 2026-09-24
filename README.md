@@ -409,6 +409,7 @@ FROM loans
 GROUP BY loan_type
 ORDER BY total_disbursed DESC;
 ```
+<img width="862" height="162" alt="Image" src="https://github.com/user-attachments/assets/ab0abe9c-0a0f-41b2-88c1-e75deb4be9d9" />
 
 ---
 
@@ -437,6 +438,8 @@ WHERE t.txn_type = 'Deposit'
 ORDER BY t.amount DESC;
 ```
 
+<img width="787" height="337" alt="Image" src="https://github.com/user-attachments/assets/7c3941fe-e1aa-4cea-959b-e499d9511c7f" />
+
 ---
 
 #### Q14. When do Fixed Deposits mature and how much interest will be paid?
@@ -461,6 +464,8 @@ WHERE a.account_type = 'Fixed Deposit'
   AND a.status = 'Active'
 ORDER BY annual_interest DESC;
 ```
+
+<img width="972" height="168" alt="Image" src="https://github.com/user-attachments/assets/209d2afc-1642-4a62-a647-2766f6ad0d1a" />
 
 ---
 
@@ -497,6 +502,8 @@ SELECT 'Total deposit amount',      ROUND(SUM(amount), 0)            FROM transa
 UNION ALL
 SELECT 'Total withdrawal amount',   ROUND(SUM(amount), 0)            FROM transactions WHERE txn_type = 'Withdrawal';
 ```
+
+<img width="317" height="306" alt="Image" src="https://github.com/user-attachments/assets/1b76a57e-6b0c-4525-b3b3-6d45ed7e0308" />
 
 ---
 
