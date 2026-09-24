@@ -90,6 +90,7 @@ FROM segmented
 GROUP BY segment
 ORDER BY total_aum DESC;
 ```
+<img width="582" height="187" alt="Image" src="https://github.com/user-attachments/assets/2accfdb9-2caf-4d27-b83e-525720a317d0" />
 
 ---
 
