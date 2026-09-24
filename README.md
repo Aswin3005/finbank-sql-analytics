@@ -1,1 +1,538 @@
-# finbank-sql-analytics
+# 🏦 FinBank Analytics — SQL Portfolio Project
+
+**Domain:** Finance / Banking  
+**Tool:** MySQL Workbench (MySQL 8.0+)  
+**Skills:** CTEs, Window Functions, JOINs, Subqueries, Aggregations, Date Functions  
+
+---
+
+## 📌 Project Overview
+
+This project simulates a real-world banking analytics database for a fictional bank — **FinBank**.  
+It covers customer segmentation, transaction trend analysis, loan risk assessment, branch performance, and executive reporting.
+
+The goal is to answer **15 business questions** that a Data Analyst would be expected to solve in a banking or fintech environment.
+
+---
+
+## 🗂️ Database Schema
+
+The database contains **5 related tables:**
+
+```
+branches      → 8 rows   — Bank branches across India (city, region)
+customers     → 40 rows  — Customer profiles with credit scores
+accounts      → 41 rows  — Savings, Current, and Fixed Deposit accounts
+transactions  → 81 rows  — Deposits, withdrawals, transfers, fees, interest
+loans         → 30 rows  — Home, auto, personal, education, business loans
+```
+
+**Entity Relationship:**
+```
+branches ──< accounts >── customers
+branches ──< loans    >── customers
+accounts ──< transactions
+```
+
+---
+
+## 📁 Files
+
+| File | Description |
+|------|-------------|
+| `01_dataset_setup_mysql.sql` | Creates the database, tables, and inserts all seed data |
+| `02_analysis_queries_mysql.sql` | 15 business analysis queries across 6 sections |
+
+> **How to run:** Open MySQL Workbench → run `01_dataset_setup_mysql.sql` first → then run queries from `02_analysis_queries_mysql.sql` one section at a time.
+
+---
+
+## 📊 Business Questions & Queries
+
+---
+
+### Section 1 — Customer Segmentation
+
+---
+
+#### Q1. Which customers are our highest-value clients?
+**Business use:** Target Platinum and Gold customers for wealth management and premium offers.  
+**Concepts:** CTE, `NTILE()`, `CASE WHEN`, `GROUP BY`
+
+```sql
+WITH customer_balances AS (
+    SELECT
+        c.customer_id,
+        c.full_name,
+        c.city,
+        c.credit_score,
+        SUM(a.balance) AS total_balance
+    FROM customers c
+    JOIN accounts a USING (customer_id)
+    WHERE a.status = 'Active'
+    GROUP BY c.customer_id, c.full_name, c.city, c.credit_score
+),
+segmented AS (
+    SELECT *,
+        NTILE(4) OVER (ORDER BY total_balance DESC) AS quartile,
+        CASE NTILE(4) OVER (ORDER BY total_balance DESC)
+            WHEN 1 THEN 'Platinum'
+            WHEN 2 THEN 'Gold'
+            WHEN 3 THEN 'Silver'
+            ELSE        'Standard'
+        END AS segment
+    FROM customer_balances
+)
+SELECT
+    segment,
+    COUNT(*)                        AS customer_count,
+    ROUND(AVG(total_balance), 2)    AS avg_balance,
+    ROUND(AVG(credit_score), 1)     AS avg_credit_score,
+    SUM(total_balance)              AS total_aum
+FROM segmented
+GROUP BY segment
+ORDER BY total_aum DESC;
+```
+
+---
+
+#### Q2. Which customers have been inactive for over 180 days?
+**Business use:** Build a re-engagement campaign list for dormant account holders.  
+**Concepts:** CTE, `LEFT JOIN`, `MAX()`, `DATEDIFF()`, `CURDATE()`
+
+```sql
+WITH last_txn AS (
+    SELECT
+        a.customer_id,
+        MAX(t.txn_date) AS last_txn_date
+    FROM transactions t
+    JOIN accounts a USING (account_id)
+    GROUP BY a.customer_id
+)
+SELECT
+    c.customer_id,
+    c.full_name,
+    c.email,
+    lt.last_txn_date,
+    DATEDIFF(CURDATE(), lt.last_txn_date) AS days_since_last_txn
+FROM customers c
+LEFT JOIN last_txn lt USING (customer_id)
+WHERE lt.last_txn_date IS NULL
+   OR lt.last_txn_date < CURDATE() - INTERVAL 180 DAY
+ORDER BY days_since_last_txn DESC;
+```
+
+---
+
+### Section 2 — Transaction Trend Analysis
+
+---
+
+#### Q3. How has monthly transaction volume changed month over month?
+**Business use:** Track business growth and identify seasonal patterns in deposits and withdrawals.  
+**Concepts:** CTE, `DATE_FORMAT()`, `LAG()`, `NULLIF()`, window functions
+
+```sql
+WITH monthly AS (
+    SELECT
+        DATE_FORMAT(txn_date, '%Y-%m-01') AS txn_month,
+        COUNT(*)                           AS txn_count,
+        SUM(amount)                        AS total_amount
+    FROM transactions
+    WHERE txn_type IN ('Deposit', 'Withdrawal')
+    GROUP BY DATE_FORMAT(txn_date, '%Y-%m-01')
+),
+with_lag AS (
+    SELECT *,
+        LAG(total_amount) OVER (ORDER BY txn_month) AS prev_month_amount
+    FROM monthly
+)
+SELECT
+    txn_month,
+    txn_count,
+    ROUND(total_amount, 2)                                        AS total_amount,
+    ROUND(
+        100.0 * (total_amount - prev_month_amount)
+        / NULLIF(prev_month_amount, 0),
+    2)                                                            AS mom_pct_change
+FROM with_lag
+ORDER BY txn_month;
+```
+
+---
+
+#### Q4. What is the running balance for each account over time?
+**Business use:** Reconstruct account statements and detect potential overdrafts.  
+**Concepts:** `SUM() OVER`, window frame (`ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`), `CASE WHEN`
+
+```sql
+SELECT
+    t.txn_id,
+    t.account_id,
+    c.full_name,
+    t.txn_date,
+    t.txn_type,
+    t.amount,
+    SUM(
+        CASE
+            WHEN t.txn_type IN ('Deposit', 'Interest')           THEN  t.amount
+            WHEN t.txn_type IN ('Withdrawal', 'Fee', 'Transfer') THEN -t.amount
+            ELSE 0
+        END
+    ) OVER (
+        PARTITION BY t.account_id
+        ORDER BY t.txn_date, t.txn_id
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS running_balance
+FROM transactions t
+JOIN accounts  a USING (account_id)
+JOIN customers c ON c.customer_id = a.customer_id
+ORDER BY t.account_id, t.txn_date;
+```
+
+---
+
+#### Q5. What percentage of transactions happen through each channel per year?
+**Business use:** Track digital adoption — how fast are customers moving from Branch/ATM to Online/Mobile?  
+**Concepts:** `SUM(COUNT(*)) OVER PARTITION BY`, `YEAR()`, percentage calculation
+
+```sql
+SELECT
+    YEAR(txn_date)   AS txn_year,
+    channel,
+    COUNT(*)         AS txn_count,
+    ROUND(
+        100.0 * COUNT(*) / SUM(COUNT(*)) OVER (PARTITION BY YEAR(txn_date)),
+    2)               AS channel_share_pct
+FROM transactions
+GROUP BY YEAR(txn_date), channel
+ORDER BY txn_year, txn_count DESC;
+```
+
+---
+
+### Section 3 — Loan Portfolio Risk Analysis
+
+---
+
+#### Q6. What does the loan portfolio look like by type and status?
+**Business use:** Credit risk dashboard — see where the bank's loan exposure is concentrated.  
+**Concepts:** `GROUP BY`, `SUM() OVER()`, `AVG()`, portfolio share percentage
+
+```sql
+SELECT
+    loan_type,
+    status,
+    COUNT(*)                             AS loan_count,
+    SUM(principal)                       AS total_principal,
+    SUM(outstanding_amt)                 AS total_outstanding,
+    ROUND(AVG(interest_rate), 2)         AS avg_rate,
+    ROUND(
+        100.0 * SUM(outstanding_amt)
+        / SUM(SUM(outstanding_amt)) OVER (),
+    2)                                   AS portfolio_share_pct
+FROM loans
+GROUP BY loan_type, status
+ORDER BY total_outstanding DESC;
+```
+
+---
+
+#### Q7. Which NPA and defaulted loan customers had low credit scores?
+**Business use:** Validate whether the credit scoring model correctly predicted risk at the time of disbursement.  
+**Concepts:** `JOIN`, `WHERE IN`, scalar subquery, comparison vs portfolio average
+
+```sql
+SELECT
+    c.customer_id,
+    c.full_name,
+    c.credit_score,
+    l.loan_type,
+    l.principal,
+    l.outstanding_amt,
+    l.status                                             AS loan_status,
+    l.disbursed_date,
+    c.credit_score - (SELECT ROUND(AVG(credit_score), 1)
+                      FROM customers)                    AS score_vs_avg
+FROM loans l
+JOIN customers c ON c.customer_id = l.customer_id
+WHERE l.status IN ('NPA', 'Defaulted')
+ORDER BY l.outstanding_amt DESC;
+```
+
+---
+
+#### Q8. Which customers are over-leveraged relative to their deposits?
+**Business use:** Flag customers for credit limit review before approving new loans.  
+**Concepts:** Multiple CTEs, `LEFT JOIN`, `COALESCE()`, `NULLIF()`, `CASE WHEN` risk classification
+
+```sql
+WITH deposits AS (
+    SELECT
+        customer_id,
+        SUM(balance) AS total_deposits
+    FROM accounts
+    WHERE account_type IN ('Savings', 'Current')
+    GROUP BY customer_id
+),
+loan_exposure AS (
+    SELECT
+        customer_id,
+        SUM(outstanding_amt) AS total_outstanding
+    FROM loans
+    WHERE status = 'Active'
+    GROUP BY customer_id
+)
+SELECT
+    c.customer_id,
+    c.full_name,
+    c.credit_score,
+    COALESCE(d.total_deposits, 0)     AS total_deposits,
+    COALESCE(le.total_outstanding, 0) AS total_outstanding,
+    ROUND(
+        COALESCE(le.total_outstanding, 0)
+        / NULLIF(COALESCE(d.total_deposits, 0), 0),
+    2)                                AS debt_to_deposit_ratio,
+    CASE
+        WHEN COALESCE(le.total_outstanding, 0) = 0 THEN 'No Debt'
+        WHEN COALESCE(le.total_outstanding, 0)
+             / NULLIF(COALESCE(d.total_deposits, 0), 0) > 5 THEN 'High Risk'
+        WHEN COALESCE(le.total_outstanding, 0)
+             / NULLIF(COALESCE(d.total_deposits, 0), 0) > 2 THEN 'Medium Risk'
+        ELSE 'Low Risk'
+    END                               AS risk_flag
+FROM customers c
+LEFT JOIN deposits d       USING (customer_id)
+LEFT JOIN loan_exposure le USING (customer_id)
+ORDER BY debt_to_deposit_ratio DESC;
+```
+
+---
+
+### Section 4 — Branch Performance
+
+---
+
+#### Q9. How do branches rank against each other within their region?
+**Business use:** Regional performance review — identify top and underperforming branches.  
+**Concepts:** Multi-table `LEFT JOIN`, `COUNT(DISTINCT)`, `RANK() OVER PARTITION BY`, `COALESCE()`
+
+```sql
+SELECT
+    b.branch_id,
+    b.branch_name,
+    b.region,
+    COUNT(DISTINCT a.account_id)     AS total_accounts,
+    COUNT(DISTINCT a.customer_id)    AS total_customers,
+    SUM(a.balance)                   AS total_deposits,
+    COUNT(DISTINCT l.loan_id)        AS total_loans,
+    SUM(l.principal)                 AS total_loan_book,
+    ROUND(AVG(c.credit_score), 1)    AS avg_credit_score,
+    RANK() OVER (
+        PARTITION BY b.region
+        ORDER BY SUM(a.balance) + COALESCE(SUM(l.principal), 0) DESC
+    )                                AS rank_in_region
+FROM branches b
+LEFT JOIN accounts  a ON a.branch_id   = b.branch_id AND a.status = 'Active'
+LEFT JOIN loans     l ON l.branch_id   = b.branch_id AND l.status = 'Active'
+LEFT JOIN customers c ON c.customer_id = a.customer_id
+GROUP BY b.branch_id, b.branch_name, b.region
+ORDER BY b.region, rank_in_region;
+```
+
+---
+
+#### Q10. Who are the top 3 depositors at each branch?
+**Business use:** Identify VIP customers per branch for relationship manager assignment.  
+**Concepts:** CTE, `DENSE_RANK() OVER PARTITION BY`, TOP-N per group pattern
+
+```sql
+WITH ranked AS (
+    SELECT
+        b.branch_name,
+        c.full_name,
+        SUM(a.balance) AS total_balance,
+        DENSE_RANK() OVER (
+            PARTITION BY b.branch_id
+            ORDER BY SUM(a.balance) DESC
+        ) AS rnk
+    FROM accounts a
+    JOIN branches  b ON b.branch_id   = a.branch_id
+    JOIN customers c ON c.customer_id = a.customer_id
+    WHERE a.status = 'Active'
+    GROUP BY b.branch_id, b.branch_name, c.customer_id, c.full_name
+)
+SELECT branch_name, rnk, full_name, total_balance
+FROM ranked
+WHERE rnk <= 3
+ORDER BY branch_name, rnk;
+```
+
+---
+
+### Section 5 — Customer & Product Analysis
+
+---
+
+#### Q11. How many new customers joined each year and what is their average credit score?
+**Business use:** Track customer acquisition trends and the quality of new customers over time.  
+**Concepts:** `GROUP BY`, `YEAR()`, `COUNT()`, `AVG()`, `MIN()`, `MAX()`
+
+```sql
+SELECT
+    YEAR(joined_date)            AS join_year,
+    COUNT(*)                     AS new_customers,
+    ROUND(AVG(credit_score), 1)  AS avg_credit_score,
+    MIN(credit_score)            AS lowest_score,
+    MAX(credit_score)            AS highest_score
+FROM customers
+GROUP BY YEAR(joined_date)
+ORDER BY join_year;
+```
+
+---
+
+#### Q12. Which loan types have the most outstanding debt and bad loans?
+**Business use:** Product team uses this to adjust lending strategy — reduce exposure in high-risk categories.  
+**Concepts:** `GROUP BY`, `SUM()`, calculated columns, `COUNT(CASE WHEN)`
+
+```sql
+SELECT
+    loan_type,
+    COUNT(*)                                         AS total_loans,
+    ROUND(SUM(principal), 0)                         AS total_disbursed,
+    ROUND(SUM(outstanding_amt), 0)                   AS total_outstanding,
+    ROUND(SUM(principal) - SUM(outstanding_amt), 0)  AS total_repaid,
+    ROUND(AVG(interest_rate), 2)                     AS avg_interest_rate,
+    COUNT(CASE WHEN status = 'Active'                THEN 1 END) AS active_loans,
+    COUNT(CASE WHEN status IN ('Defaulted','NPA')    THEN 1 END) AS bad_loans
+FROM loans
+GROUP BY loan_type
+ORDER BY total_disbursed DESC;
+```
+
+---
+
+#### Q13. Which large deposits might need a closer look?
+**Business use:** Compliance team flags high-value deposits for review based on amount thresholds.  
+**Concepts:** 3-table `JOIN`, `WHERE`, `CASE WHEN` categorisation, `ORDER BY`
+
+```sql
+SELECT
+    t.txn_id,
+    c.full_name,
+    c.city,
+    a.account_type,
+    t.txn_date,
+    t.amount,
+    t.channel,
+    CASE
+        WHEN t.amount >= 500000 THEN 'Very Large'
+        WHEN t.amount >= 200000 THEN 'Large'
+        ELSE                         'Moderate'
+    END                          AS deposit_category
+FROM transactions t
+JOIN accounts  a ON a.account_id  = t.account_id
+JOIN customers c ON c.customer_id = a.customer_id
+WHERE t.txn_type = 'Deposit'
+  AND t.amount  >= 100000
+ORDER BY t.amount DESC;
+```
+
+---
+
+#### Q14. When do Fixed Deposits mature and how much interest will be paid?
+**Business use:** Treasury team plans cash outflows by knowing when FDs mature and how much interest is owed.  
+**Concepts:** `JOIN`, calculated columns, `DATE_ADD()`, `DATEDIFF()`, `CURDATE()`
+
+```sql
+SELECT
+    c.full_name,
+    c.city,
+    a.balance                                  AS fd_amount,
+    a.opened_date,
+    ROUND(a.balance * 0.07, 2)                AS annual_interest,
+    ROUND(a.balance * 0.07 / 12, 2)           AS monthly_interest,
+    DATE_ADD(a.opened_date, INTERVAL 1 YEAR)  AS first_maturity_date,
+    DATEDIFF(
+        DATE_ADD(a.opened_date, INTERVAL 1 YEAR),
+        CURDATE()
+    )                                          AS days_to_maturity
+FROM accounts a
+JOIN customers c USING (customer_id)
+WHERE a.account_type = 'Fixed Deposit'
+  AND a.status = 'Active'
+ORDER BY annual_interest DESC;
+```
+
+---
+
+### Section 6 — Executive Summary Dashboard
+
+---
+
+#### Q15. What is the overall health of the bank in one report?
+**Business use:** Management dashboard — a single query that gives the C-suite a snapshot of all key metrics.  
+**Concepts:** `UNION ALL`, `COUNT()`, `SUM()`, `AVG()`, `ROUND()`, `WHERE` filters per metric
+
+```sql
+SELECT 'Total customers'          AS metric, COUNT(*)               AS value FROM customers
+UNION ALL
+SELECT 'Active accounts',           COUNT(*)                         FROM accounts    WHERE status = 'Active'
+UNION ALL
+SELECT 'Dormant accounts',          COUNT(*)                         FROM accounts    WHERE status = 'Dormant'
+UNION ALL
+SELECT 'Total deposits (AUM)',       ROUND(SUM(balance), 0)          FROM accounts    WHERE status = 'Active'
+UNION ALL
+SELECT 'Active loans',              COUNT(*)                         FROM loans       WHERE status = 'Active'
+UNION ALL
+SELECT 'Total loan book',           ROUND(SUM(outstanding_amt), 0)   FROM loans       WHERE status = 'Active'
+UNION ALL
+SELECT 'NPA + Defaulted loans',     COUNT(*)                         FROM loans       WHERE status IN ('NPA','Defaulted')
+UNION ALL
+SELECT 'NPA exposure (amount)',     ROUND(SUM(outstanding_amt), 0)   FROM loans       WHERE status IN ('NPA','Defaulted')
+UNION ALL
+SELECT 'Avg customer credit score', ROUND(AVG(credit_score), 1)      FROM customers
+UNION ALL
+SELECT 'Total transactions',        COUNT(*)                         FROM transactions
+UNION ALL
+SELECT 'Total deposit amount',      ROUND(SUM(amount), 0)            FROM transactions WHERE txn_type = 'Deposit'
+UNION ALL
+SELECT 'Total withdrawal amount',   ROUND(SUM(amount), 0)            FROM transactions WHERE txn_type = 'Withdrawal';
+```
+
+---
+
+## 🧠 SQL Concepts Covered
+
+| Concept | Used In |
+|--------|---------|
+| Common Table Expressions (CTEs) | Q1, Q2, Q3, Q8, Q10 |
+| Window Functions (`RANK`, `DENSE_RANK`, `NTILE`, `LAG`) | Q1, Q3, Q5, Q9, Q10 |
+| Running Totals (`SUM OVER` with frame) | Q4 |
+| Multi-table JOINs | Q4, Q9, Q10, Q13 |
+| LEFT JOIN for missing data | Q2, Q8, Q9 |
+| Subqueries | Q7 |
+| CASE WHEN | Q1, Q4, Q8, Q12, Q13 |
+| COALESCE / NULLIF | Q3, Q8 |
+| Date Functions (`YEAR`, `DATEDIFF`, `DATE_ADD`, `CURDATE`) | Q2, Q3, Q11, Q14 |
+| UNION ALL | Q15 |
+| Aggregations (`SUM`, `COUNT`, `AVG`, `MIN`, `MAX`) | All sections |
+
+---
+
+## 🛠️ How to Set Up Locally
+
+1. Install [MySQL 8.0+](https://dev.mysql.com/downloads/) and [MySQL Workbench](https://www.mysql.com/products/workbench/)
+2. Open Workbench and connect to your local instance
+3. Run `01_dataset_setup_mysql.sql` — this creates the `finbank` database and loads all data
+4. Open `02_analysis_queries_mysql.sql` and run each query individually
+5. Verify data loaded correctly — you should see 8 branches, 40 customers, 41 accounts, 81 transactions, 30 loans
+
+---
+
+## 👤 Author
+
+**[Your Name]**  
+Aspiring Data Analyst  
+[LinkedIn](https://linkedin.com/in/your-profile) | [GitHub](https://github.com/your-username)
