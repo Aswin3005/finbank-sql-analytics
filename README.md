@@ -118,6 +118,7 @@ WHERE lt.last_txn_date IS NULL
    OR lt.last_txn_date < CURDATE() - INTERVAL 180 DAY
 ORDER BY days_since_last_txn DESC;
 ```
+<img width="687" height="248" alt="Image" src="https://github.com/user-attachments/assets/b041e7cd-0546-4a1b-9292-6e0588640746" />
 
 ---
 
@@ -154,6 +155,8 @@ FROM with_lag
 ORDER BY txn_month;
 ```
 
+<img width="442" height="265" alt="Image" src="https://github.com/user-attachments/assets/5200ca63-8253-41d0-a9bc-f3dc1eb0ecf7" />
+
 ---
 
 #### Q4. What is the running balance for each account over time?
@@ -184,6 +187,8 @@ JOIN customers c ON c.customer_id = a.customer_id
 ORDER BY t.account_id, t.txn_date;
 ```
 
+<img width="692" height="232" alt="Image" src="https://github.com/user-attachments/assets/fcb08875-aafa-4b67-92d4-565c96d32470" />
+
 ---
 
 #### Q5. What percentage of transactions happen through each channel per year?
@@ -200,6 +205,7 @@ FROM transactions
 GROUP BY YEAR(txn_date), channel
 ORDER BY txn_year, txn_count DESC;
 ```
+<img width="415" height="177" alt="Image" src="https://github.com/user-attachments/assets/44d1f2ee-755d-4a45-8fb7-9d11076300f1" />
 
 ---
 
